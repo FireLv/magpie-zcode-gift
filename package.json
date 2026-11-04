@@ -1,0 +1,51 @@
+{
+  "name": "zcode-gift",
+  "version": "0.2.0",
+  "description": "ZCode 礼包助手（magpie 插件）：自动识别并领取 ZCode 礼包，跨账号汇总持有/用量/领取记录。账号来自 magpie 的 zcode 供应商登录。",
+  "type": "module",
+  "main": "./index.mjs",
+  "files": [
+    "index.mjs",
+    "server.mjs",
+    "runner.mjs",
+    "claim.mjs",
+    "sweep.mjs",
+    "lib",
+    "page",
+    "tools",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FireLv/magpie-zcode-gift.git"
+  },
+  "homepage": "https://github.com/FireLv/magpie-zcode-gift",
+  "keywords": [
+    "magpie",
+    "magpie-plugin",
+    "zcode",
+    "gift",
+    "claim",
+    "page"
+  ],
+  "license": "MIT",
+  "magpie": {
+    "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjggMTI4IiB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCI+PHJlY3Qgd2lkdGg9IjEyOCIgaGVpZ2h0PSIxMjgiIHJ4PSIyOCIgZmlsbD0iIzBmNzY2ZiIvPjx0ZXh0IHg9IjY0IiB5PSI4MiIgZm9udC1zaXplPSI1NiIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZmlsbD0iI2ZmZiIgdGV4dC1hbmNob3I9Im1pZGRsZSI+56ewPC90ZXh0Pjwvc3ZnPg==",
+    "page": {
+      "title": "ZCode 礼包",
+      "titles": {
+        "zh": "ZCode 礼包",
+        "en": "ZCode Gifts"
+      },
+      "file": "page/index.html",
+      "icon": "page/icon.svg",
+      "service": {
+        "port": 3455,
+        "option": "port"
+      }
+    },
+    "options": {
+      "port": 3455
+    }
+  }
+}

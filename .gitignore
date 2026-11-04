@@ -1,0 +1,14 @@
+# 运行时产物（sidecar 每次刷新都会重写，不进仓库）
+page/data.js
+
+# 账号快照：含登录令牌，绝不提交
+accounts/
+*.json.lock
+
+# 本机依赖与日志
+node_modules/
+*.log
+
+# 编辑器/系统杂项
+.DS_Store
+Thumbs.db

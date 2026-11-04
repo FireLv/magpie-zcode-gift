@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ZCode 礼包</title>
+  <link rel="stylesheet" href="style.css?v=6">
+  <script src="_magpie/bridge.js"></script><script src="data.js"></script><script src="board.js?v=6" defer></script>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>ZCode 礼包</h1>
+      <p class="muted" id="updated">读取中…</p>
+      <p class="muted" id="version"></p>
+    </div>
+    <div class="actions">
+      <button type="button" id="toggle" data-action="toggle">启用任务</button>
+      <button type="button" data-action="run">立即领取</button>
+      <button type="button" data-action="clear">清空记录</button>
+    </div>
+  </header>
+
+  <section class="stats">
+    <div class="stat stat-account"><b id="s-accounts">–</b><span>账号</span></div>
+    <div class="stat stat-claimed"><b id="s-claimed">–</b><span>当前持有礼包</span></div>
+    <div class="stat stat-tokens"><b id="s-tokens">–</b><span>当前持有总量</span></div>
+    <div class="stat stat-success"><b id="s-success">–</b><span>成功</span></div>
+    <div class="stat stat-failed"><b id="s-failed">–</b><span>失败</span></div>
+    <div class="stat stat-next"><b id="s-next">–</b><span>下次执行</span></div>
+  </section>
+
+  <section class="settings">
+    <label>执行间隔（分钟）<input id="interval" type="number" min="1" max="180" step="1"></label>
+    <label>单位显示
+      <select id="unitStyle"><option value="zh">万 / 亿</option><option value="si">B / M</option></select>
+    </label>
+    <label>版本号来源
+      <select id="versionSource">
+        <option value="local">本地目录</option>
+        <option value="github">GitHub 直连</option>
+        <option value="mirror">国内加速站</option>
+      </select>
+    </label>
+    <button type="button" data-action="save">保存设置</button>
+    <span id="msg" class="muted"></span>
+  </section>
+
+  <section><h2>领取记录</h2><div id="records" class="muted">暂无记录</div></section>
+  <section><h2>账号套餐</h2><div id="accounts" class="muted">暂无数据</div></section>
+
+  <footer class="muted">数据由本机后台服务约每 10 分钟刷新；面板数据文件：page/data.js</footer>
+</body>
+</html>
