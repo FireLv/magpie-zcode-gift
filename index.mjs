@@ -81,6 +81,7 @@ export const ZcodeGiftPlugin = async (input, options = {}) => {
       const body = typeof request === "string" ? JSON.parse(request) : request
       if (body?.action === "run") await rpc(port, "/api/run", {})
       else if (body?.action === "config") await rpc(port, "/api/config", { ...(body.patch ?? {}), id: body.id })
+      else if (body?.action === "page-seen") await rpc(port, "/api/page-seen", { id: body.id, wake: body.wake === true }).catch(() => {})
       feedDataFile(port)
     } catch (e) { console.error("[zcode-gift] request:", e?.message ?? e) }
   }

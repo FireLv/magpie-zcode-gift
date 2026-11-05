@@ -1,6 +1,6 @@
 {
   "name": "zcode-gift",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "ZCode 礼包助手（magpie 插件）：自动识别并领取 ZCode 礼包，跨账号汇总持有/用量/领取记录。账号来自 magpie 的 zcode 供应商登录。",
   "type": "module",
   "main": "./index.mjs",

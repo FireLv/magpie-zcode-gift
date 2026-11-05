@@ -27,6 +27,34 @@ const STATUS_TEXT = {
 }
 
 let myRequestId = null
+let pokeId = null          // 「切回本页」唤醒请求的在途 id
+let clearedRequest = null  // 已清理过的无人认领旧请求
+
+// —— 面板可见性 ——
+// 沙箱页面不能联网，上行只有 magpie.options.set（触发插件重载，插件加载时
+// 通知后台）。用 rAF 判断自己是否真的被渲染：切走 / magpie 最小化时 rAF 停走。
+// 切回本页时发一次唤醒（后台补一轮，45 秒防抖）；切走后不发任何东西，
+// 也不再读数据——余量刷新随之暂停；领取任务由后台按 intervalMin 独立轮询。
+let rafAt = Date.now()
+const rafLoop = () => { rafAt = Date.now(); requestAnimationFrame(rafLoop) }
+requestAnimationFrame(rafLoop)
+
+let lastVisible = null
+let hbAt = 0 // 保活心跳时间
+
+setInterval(() => {
+  const isVis = document.visibilityState === "visible" && Date.now() - rafAt < 5_000
+  const was = lastVisible
+  lastVisible = isVis
+  if (!isVis || pokeId || myRequestId) return
+  // 切回本页：唤醒后台立即补刷一轮；保持在看：每 5 分钟一次保活心跳，
+  // 维持「面板在看」信号（已收工账号的余量刷新跟随它，见 runner.tick）。
+  const wake = was !== true
+  if (!wake && Date.now() - hbAt < 5 * 60_000) return
+  pokeId = "p" + Date.now()
+  hbAt = Date.now()
+  try { magpie.options.set({ request: { action: "page-seen", id: pokeId, wake } }) } catch { pokeId = null }
+}, 3_000)
 
 // 版本号一行：插件自身版本 + 这次请求带的 ZCode 版本（及来源）
 function versionLine(v) {
@@ -96,7 +124,7 @@ function render(snap) {
       row.className = "account"
       const head = document.createElement("div")
       head.className = "account-head"
-      head.innerHTML = `<b>${a.name}</b> <span class="muted">${a.site ?? ""}${a.expired ? " · 登录过期" : ""}${a.error ? " · " + a.error : ""}</span>`
+      head.innerHTML = `<b>${a.name}</b> <span class="muted">${a.site ?? ""}${a.expired ? " · 登录过期" : ""}${a.stale ? " · 余量暂停更新" : ""}${a.error ? " · " + a.error : ""}</span>`
       row.appendChild(head)
       if (a.plans?.length) {
         const STATUS_ZH = { active: "生效中", expired: "已过期", pending: "待生效", inactive: "未激活" }
@@ -164,16 +192,28 @@ function render(snap) {
     }
   }
 
-  // 我发起的请求已被处理：清掉，避免插件下次重载重复执行
-  if (myRequestId && config.lastRequest === myRequestId) {
+  // 请求确认与清理：自己发起的（按钮/唤醒）被后台处理后置空 request；
+  // 页面重载后无人认领的旧请求只清理一次——不清的话它会在每次插件加载时
+  // 重放（「清空记录」就曾被旧请求反复执行过，把记录清了个干净）。
+  const lr = config.lastRequest
+  if (lr && (lr === myRequestId || lr === pokeId)) {
+    const mine = lr === myRequestId
     myRequestId = null
+    pokeId = null
+    clearedRequest = lr
     try { magpie.options.set({ request: null }) } catch {}
-    $("msg").textContent = "已执行"
-    setTimeout(() => { $("msg").textContent = "" }, 2500)
+    if (mine) {
+      $("msg").textContent = "已执行"
+      setTimeout(() => { $("msg").textContent = "" }, 2500)
+    }
+  } else if (lr && !myRequestId && !pokeId && lr !== clearedRequest) {
+    clearedRequest = lr
+    try { magpie.options.set({ request: null }) } catch {}
   }
 }
 
 function readData() {
+  if (lastVisible === false) return // 切走：暂停面板数据读取与渲染（领取任务在后台照常）
   const s = document.createElement("script")
   s.src = "data.js?t=" + Date.now()
   s.onload = () => { try { render(window.__ZG__?.snapshot) } catch (e) { console.error(e) } }

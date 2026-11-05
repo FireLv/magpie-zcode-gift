@@ -3,7 +3,7 @@
 import { readFileSync, readdirSync, existsSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
-import { loadConfig, loadRecords, addRecords, saveConfig, writeSnapshot, loadDaily, saveDaily } from "./lib/store.mjs"
+import { loadConfig, loadRecords, addRecords, saveConfig, writeSnapshot, loadDaily, saveDaily, loadSnapshot } from "./lib/store.mjs"
 import { preview, balance, claim, jwtSubject, reportActivation, marketingDeliveries, appVersion, noteRemoteVersion, remoteVersionInfo } from "./lib/zcode.mjs"
 import { fetchLatestVersion, VERSION_SOURCES } from "./lib/version.mjs"
 import { attestation, captchaConfig } from "./lib/captcha.mjs"
@@ -159,7 +159,7 @@ const trimDaily = (daily) => {
 
 // —— 主流程 ——
 
-export const tick = async ({ force = false } = {}) => {
+export const tick = async ({ force = false, panelActive = true } = {}) => {
   const cfg = loadConfig()
   await refreshVersion(cfg)
   const accounts = allAccounts()
@@ -178,52 +178,72 @@ export const tick = async ({ force = false } = {}) => {
   let skippedDaily = 0
   let dailyWrite = false
 
+  // 上一次快照：已收工账号在面板不可见时余量暂停刷新，沿用旧值展示
+  const prevByName = new Map((loadSnapshot()?.accounts ?? []).map((v) => [v.name, v]))
+
   for (const a of accounts) {
     const view = { name: a.name, site: a.site, source: a.source, expired: jwtExpired(a.jwt), plans: [], pending: [] }
+    // 账号当日收工：当天领到过任何批次 → 不再探测（marketing/preview）、不再领取；
+    // balance 只剩余量显示用途，面板不可见时连它也跳过（沿用上次快照并标注 stale）。
+    const done = todayDone[a.id] ?? {}
+    const settled = !force && Object.keys(done).length > 0
+    const skipBalance = settled && !panelActive
     try {
-      const bal = await apiBalance(a)
-      const plans = bal?.plans ?? []
-      const eff = (p) => p.entitlements?.[0]
-      for (const p of plans) {
-        const e = eff(p) ?? {}
-        view.plans.push({
-          plan: p.plan_id, name: p.name || p.plan_id, status: p.status,
-          units: e.grant_units ?? null, effective: e.effective_at ? e.effective_at * 1000 : null,
-          ends: p.ends_at ? p.ends_at * 1000 : null,
-          starts: p.starts_at ? p.starts_at * 1000 : null,
-        })
-      }
-      // 各模型桶的实时用量（used/remaining 随每次 tick 刷新）
-      view.buckets = (bal?.balances ?? []).map((x) => ({
-        show: x.show_name ?? "", plan: x.plan_id ?? "",
-        used: Number.isFinite(Number(x.used_units)) ? Number(x.used_units) : null,
-        remaining: Number.isFinite(Number(x.remaining_units)) ? Number(x.remaining_units) : null,
-        total: Number.isFinite(Number(x.total_units)) ? Number(x.total_units) : null,
-        expires: Number(x.expires_at) > 0 ? x.expires_at * 1000 : null,
-      }))
-      // 每个礼包的已用量 = 它名下各模型桶之和（用于面板「礼包/总量/已用/开始/过期」）
-      {
-        const usedByPlan = new Map()
-        const totalByPlan = new Map()
-        for (const b of view.buckets ?? []) {
-          if (!b.plan) continue
-          usedByPlan.set(b.plan, (usedByPlan.get(b.plan) ?? 0) + (Number(b.used) || 0))
-          totalByPlan.set(b.plan, (totalByPlan.get(b.plan) ?? 0) + (Number(b.total) || 0))
+      if (skipBalance) {
+        const old = prevByName.get(a.name)
+        if (old) {
+          view.plans = old.plans ?? []
+          view.buckets = old.buckets ?? []
+          view.stale = true
         }
-        for (const p of view.plans) {
-          p.used = usedByPlan.has(p.plan) ? usedByPlan.get(p.plan) : null
-          if (!p.units && totalByPlan.has(p.plan)) p.units = totalByPlan.get(p.plan)
+      } else {
+        const bal = await apiBalance(a)
+        const plans = bal?.plans ?? []
+        const eff = (p) => p.entitlements?.[0]
+        for (const p of plans) {
+          const e = eff(p) ?? {}
+          view.plans.push({
+            plan: p.plan_id, name: p.name || p.plan_id, status: p.status,
+            units: e.grant_units ?? null, effective: e.effective_at ? e.effective_at * 1000 : null,
+            ends: p.ends_at ? p.ends_at * 1000 : null,
+            starts: p.starts_at ? p.starts_at * 1000 : null,
+          })
+        }
+        // 各模型桶的实时用量（used/remaining 随每次 tick 刷新）
+        view.buckets = (bal?.balances ?? []).map((x) => ({
+          show: x.show_name ?? "", plan: x.plan_id ?? "",
+          used: Number.isFinite(Number(x.used_units)) ? Number(x.used_units) : null,
+          remaining: Number.isFinite(Number(x.remaining_units)) ? Number(x.remaining_units) : null,
+          total: Number.isFinite(Number(x.total_units)) ? Number(x.total_units) : null,
+          expires: Number(x.expires_at) > 0 ? x.expires_at * 1000 : null,
+        }))
+        // 每个礼包的已用量 = 它名下各模型桶之和（用于面板「礼包/总量/已用/开始/过期」）
+        {
+          const usedByPlan = new Map()
+          const totalByPlan = new Map()
+          for (const b of view.buckets ?? []) {
+            if (!b.plan) continue
+            usedByPlan.set(b.plan, (usedByPlan.get(b.plan) ?? 0) + (Number(b.used) || 0))
+            totalByPlan.set(b.plan, (totalByPlan.get(b.plan) ?? 0) + (Number(b.total) || 0))
+          }
+          for (const p of view.plans) {
+            p.used = usedByPlan.has(p.plan) ? usedByPlan.get(p.plan) : null
+            if (!p.units && totalByPlan.has(p.plan)) p.units = totalByPlan.get(p.plan)
+          }
         }
       }
       // 活动投递（marketing/touch）：周末活动这类「活动卡」不走 preview，
       // 只看 preview 会漏掉——10-31 客户端弹框但 preview 为空就是这个原因。
-      let activities = []
-      try {
-        activities = await marketingDeliveries(a.jwt, a.device)
-        view.activities = activities.filter((d) => d.plans.length)
-        if (view.activities.length) activitySeen++
-      } catch {}
-      if (cfg.enabled || force) {
+      // 已收工账号不再探测。
+      if (!settled) {
+        let activities = []
+        try {
+          activities = await marketingDeliveries(a.jwt, a.device)
+          view.activities = activities.filter((d) => d.plans.length)
+          if (view.activities.length) activitySeen++
+        } catch {}
+      }
+      if ((cfg.enabled || force) && !settled) {
         const listed = await apiPreview(a).catch(() => [])
         const fresh = (Array.isArray(listed) ? listed : []).filter((p) => typeof p?.plan_id === "string" && p.plan_id.trim())
         // preview 的计划 + 活动投递里的计划，一起去重后尝试领取
@@ -233,7 +253,6 @@ export const tick = async ({ force = false } = {}) => {
           for (const planId of d.plans) if (!wanted.has(planId)) wanted.set(planId, null)
         }
         const held = new Set((view.plans ?? []).map((p) => p.plan))
-        const done = (todayDone[a.id] ??= {})
         for (const [planId, grant] of wanted) {
           if (!cfg.enabled && !force) break
           if (held.has(planId)) continue // 已持有，不再打领取接口
@@ -297,7 +316,7 @@ export const tick = async ({ force = false } = {}) => {
   const rv = remoteVersionInfo()
   writeSnapshot({
     updated: Date.now(),
-    config: { enabled: cfg.enabled, intervalMin: cfg.intervalMin, unitStyle: cfg.unitStyle, versionSource: cfg.versionSource },
+    config: { enabled: cfg.enabled, intervalMin: cfg.intervalMin, unitStyle: cfg.unitStyle, versionSource: cfg.versionSource, lastRequest: cfg.lastRequest },
     version: { plugin: PLUGIN_VERSION, app: appVersion(), source: cfg.versionSource, remote: rv.version, via: rv.via, error: rv.error, checkedAt: rv.at || null },
     stats, accounts: accountViews, records: all.slice(-100).reverse(),
   })
