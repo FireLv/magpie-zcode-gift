@@ -10,7 +10,7 @@ button.on { background: #0f766f; color: #fff; border-color: #0f766f; }
 button:hover { filter: brightness(1.06); }
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin-top: 14px; }
 .stat { border: 1px solid var(--magpie-border, #c9c9c9); border-radius: 10px; padding: 10px 12px; text-align: center; }
-.stat b { display: block; font-size: 20px; }
+.stat b { display: block; font-size: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stat span { font-size: 12px; color: gray; }
 .stat.ok b { color: #15803d; } .stat.bad b { color: #b91c1c; }
 .settings { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-top: 16px; padding: 10px 12px; border: 1px dashed var(--magpie-border, #c9c9c9); border-radius: 10px; }
@@ -21,8 +21,16 @@ button:hover { filter: brightness(1.06); }
 #msg.error { color: #b91c1c; font-weight: 600; }
 #health { color: #b45309; }
 #health:empty { display: none; }
-table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
-th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--magpie-border, #8883); white-space: nowrap; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; table-layout: fixed; }
+th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--magpie-border, #8883); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* 记录表的「说明」列（失败原因等）允许换行，长错误不再横向顶破 */
+#records td:last-child, #records th:last-child { white-space: normal; overflow-wrap: anywhere; }
+/* 记录表列宽：时间/账号/礼包/说明占大头，数量/状态窄列 */
+#records th:nth-child(1) { width: 13%; }
+#records th:nth-child(2) { width: 18%; }
+#records th:nth-child(3) { width: 22%; }
+#records th:nth-child(4), #records th:nth-child(5) { width: 8%; }
+#records th:nth-child(6) { width: 31%; }
 tr.claimed td:nth-child(5) { color: #15803d; font-weight: 600; }
 tr.done td:nth-child(5) { color: gray; }
 tr.failed td:nth-child(5), tr.captcha td:nth-child(5) { color: #b91c1c; font-weight: 600; }
@@ -56,17 +64,36 @@ table.usage th { font-weight: 600; color: gray; }
 .stat-next b { font-size: 15px; }
 /* 账号卡：一行两个，整体更紧凑 */
 #accounts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: start; }
-.account { margin-bottom: 0; padding: 7px 10px; }
-.account-head b { font-size: 13px; }
-.account-head { margin-bottom: 4px; }
+.account { margin-bottom: 0; padding: 7px 10px; min-width: 0; max-width: 100%; overflow: hidden; }
+.account-head { margin-bottom: 4px; display: flex; flex-wrap: wrap; gap: 2px 6px; align-items: baseline; min-width: 0; }
+.account-head b { font-size: 13px; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-head .muted { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan { font-size: 11.5px; line-height: 1.5; }
 .usage { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; margin-top: 6px; }
 .usage-card { padding: 4px 7px; gap: 3px; }
-.usage-model { font-size: 11.5px; }
+.usage-model { font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.usage-card { min-width: 0; }
 .usage-card .muted { font-size: 11px; }
 .usage-bar { height: 4px; }
-/* 礼包表：礼包 / 总量 / 已用 / 开始 / 过期 */
-table.plans { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-bottom: 6px; }
-table.plans th { color: gray; font-weight: 600; text-align: left; padding: 2px 6px; border-bottom: 1px solid var(--magpie-border, #8883); white-space: nowrap; }
-table.plans td { padding: 2px 6px; border-bottom: 1px dashed var(--magpie-border, #8882); white-space: nowrap; }
+/* 礼包表：礼包 / 总量 / 已用 / 开始 / 过期。
+   长文本（礼包 id / 错误原因 / 时间）是溢出主犯：table-layout:fixed 强制
+   六列均分收缩；名称列允许换行，其余列省略号截断，都不再撑破卡片。 */
+table.plans { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-bottom: 6px; table-layout: fixed; }
+/* fixed 布局按百分比定宽：礼包名占大头并可换行，其余列省略号截断 */
+table.plans th:nth-child(1) { width: 34%; }
+table.plans th:nth-child(2), table.plans th:nth-child(3) { width: 11%; }
+table.plans th:nth-child(4), table.plans th:nth-child(5) { width: 17%; }
+table.plans th:nth-child(6) { width: 10%; }
+/* 窄卡（侧栏双列布局）放不下六列：隐藏「开始/过期/状态」，礼包名与额度优先 */
+.account { container-type: inline-size; }
+@container (max-width: 340px) {
+  table.plans th:nth-child(1) { width: 44%; }
+  table.plans th:nth-child(4), table.plans th:nth-child(5), table.plans td:nth-child(4), table.plans td:nth-child(5) { display: none; }
+  table.plans th:nth-child(2), table.plans th:nth-child(3) { width: 20%; }
+  table.plans th:nth-child(6) { width: 16%; }
+}
+table.plans th { color: gray; font-weight: 600; text-align: left; padding: 2px 6px; border-bottom: 1px solid var(--magpie-border, #8883); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+table.plans td { padding: 2px 6px; border-bottom: 1px dashed var(--magpie-border, #8882); overflow: hidden; text-overflow: ellipsis; }
+table.plans td:first-child { white-space: normal; overflow-wrap: anywhere; }
+table.plans th, table.plans td { min-width: 0; }
 table.plans tr.pending td { color: #b45309; }

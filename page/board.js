@@ -124,7 +124,13 @@ function render(snap) {
       row.className = "account"
       const head = document.createElement("div")
       head.className = "account-head"
-      head.innerHTML = `<b>${a.name}</b> <span class="muted">${a.site ?? ""}${a.expired ? " · 登录过期" : ""}${a.stale ? " · 余量暂停更新" : ""}${a.error ? " · " + a.error : ""}</span>`
+      const name = document.createElement("b")
+      name.textContent = a.name ?? ""
+      const meta = document.createElement("span")
+      meta.className = "muted"
+      meta.textContent = [a.site ?? "", a.expired ? "登录过期" : "", a.stale ? "余量暂停更新" : "", a.error ?? ""].filter(Boolean).join(" · ")
+      head.appendChild(name)
+      head.appendChild(meta)
       row.appendChild(head)
       if (a.plans?.length) {
         const STATUS_ZH = { active: "生效中", expired: "已过期", pending: "待生效", inactive: "未激活" }
