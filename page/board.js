@@ -203,13 +203,24 @@ function render(snap) {
     clearedRequest = lr
     try { magpie.options.set({ request: null }) } catch {}
     if (mine) {
-      $("msg").textContent = "已执行"
-      setTimeout(() => { $("msg").textContent = "" }, 2500)
+      const err = snap.server?.lastError || snap.lastError || ""
+      $("msg").textContent = err ? "执行失败：" + err : "已执行"
+      $("msg").classList.toggle("error", !!err)
+      setTimeout(() => { $("msg").textContent = ""; $("msg").classList.remove("error") }, 6000)
     }
   } else if (lr && !myRequestId && !pokeId && lr !== clearedRequest) {
     clearedRequest = lr
     try { magpie.options.set({ request: null }) } catch {}
   }
+
+  // 服务端健康：卡死 / 上轮失败 / 快照停在旧数据，都在页面上明说
+  const srv = snap.server ?? {}
+  const stale = srv.lastTickAt ? Date.now() - srv.lastTickAt > 30 * 60_000 : false
+  const health = []
+  if (srv.running && srv.runningSince && Date.now() - srv.runningSince > 60_000) health.push(`后台任务运行中（已 ${Math.round((Date.now() - srv.runningSince) / 1000)}s，正常几十秒内）`)
+  else if (srv.lastError) health.push("上轮失败：" + srv.lastError)
+  else if (stale) health.push("后台已 30 分钟没有成功跑过一轮")
+  $("health").textContent = health.join(" · ")
 }
 
 function readData() {

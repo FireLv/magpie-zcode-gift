@@ -2,7 +2,7 @@
 // 由 index.mjs 在插件加载时拉起（wb-plus 模式）；页面本身不能联网，
 // 靠本服务把快照写进 page/data.js 供页面读取。
 import { createServer } from "node:http"
-import { writeFileSync, existsSync } from "node:fs"
+import { writeFileSync, existsSync, appendFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { loadConfig, saveConfig, clearRecords, dataDir, loadSnapshot, writeSnapshot } from "./lib/store.mjs"
@@ -13,9 +13,23 @@ import { VERSION_SOURCES } from "./lib/version.mjs"
 const here = dirname(fileURLToPath(import.meta.url))
 const PORT = Number(process.env.ZCODE_GIFT_PORT) || 3455
 
+// 日志落盘：stdio 被 magpie 丢弃（detached + ignore），不落盘就永远查不到"为什么没反应"。
+const LOG = join(dataDir(), "sidecar.log")
+const logLine = (msg) => {
+  try { appendFileSync(LOG, `${new Date().toISOString()} ${msg}\n`) } catch {}
+  console.error(`[zcode-gift] ${msg}`)
+}
+
 let running = false
+let runningSince = 0
 let lastTickAt = 0
 let lastResult = null
+let lastError = ""
+// 单轮 tick 的看门狗：上游请求全部带超时后正常一轮远小于这个值；
+// 超过仍"running"说明卡死（旧进程/被忽略的连接），后续请求直接报错而不是干等。
+const WEDGE_MS = 3 * 60_000
+const wedged = () => running && runningSince > 0 && Date.now() - runningSince > WEDGE_MS
+
 // 面板可见性信号：page-target / page-seen 每次刷新它。
 // 已收工账号的余量刷新跟随它；未收工账号的领取探测不受影响。
 let lastPageSeen = 0
@@ -26,24 +40,49 @@ const cadence = (cfg) => Math.max(1, Number(cfg.intervalMin) || 10) * 60_000
 
 const pageDataFile = () => join(here, "page", "data.js")
 
-// 把快照投喂给页面（沙箱页面唯一的数据入口）
+// 把快照投喂给页面（沙箱页面唯一的数据入口）；顺带带上服务端健康状态，
+// 页面据此展示"上轮失败：…"，而不是默默停留在旧数据上。
 const feedPage = async () => {
   const snap = (await import("./lib/store.mjs")).loadSnapshot()
+  if (snap) snap.server = { running, lastTickAt: lastTickAt || null, lastError: lastError || null }
   const body = `window.__ZG__ = ${JSON.stringify({ port: PORT, updated: Date.now(), snapshot: snap })};\n`
-  try { writeFileSync(pageDataFile(), body) } catch (e) { console.error("[zcode-gift] data.js:", e.message) }
+  try { writeFileSync(pageDataFile(), body) } catch (e) { logLine(`data.js: ${e.message}`) }
+}
+
+// 把面板请求 id 记进 config 和快照：页面靠它确认"已执行"并清理在途标记。
+// 必须在 drive 之前记录，且 drive 失败也要补进快照——否则按钮永远等不到确认。
+const markRequest = (id) => {
+  if (typeof id !== "string" || !id) return
+  try {
+    const cfg = loadConfig()
+    if (cfg.lastRequest !== id) saveConfig({ ...cfg, lastRequest: id })
+    const snap = loadSnapshot()
+    if (snap?.config && snap.config.lastRequest !== id) {
+      snap.config.lastRequest = id
+      writeSnapshot(snap)
+    }
+  } catch {}
 }
 
 const drive = async ({ force = false, panelActive: panelActiveOverride } = {}) => {
-  if (running) return lastResult
+  if (running) {
+    if (wedged()) throw new Error(`上一轮任务已运行 ${Math.round((Date.now() - runningSince) / 1000)}s 未结束，疑似卡死`)
+    return lastResult
+  }
   running = true
+  runningSince = Date.now()
   try {
     lastResult = await tick({ force, panelActive: panelActiveOverride ?? panelActive() })
     lastTickAt = Date.now()
+    lastError = ""
     await feedPage()
   } catch (e) {
-    console.error("[zcode-gift] tick:", e?.message ?? e)
+    lastError = String(e?.message ?? e).slice(0, 200)
+    logLine(`tick: ${lastError}`)
+    await feedPage() // 失败也要刷新 data.js：页面能看到"上轮失败"，而不是无限旧数据
   } finally {
     running = false
+    runningSince = 0
   }
   return lastResult
 }
@@ -63,7 +102,7 @@ const server = createServer(async (req, res) => {
   try {
     if (url.pathname === "/api/status") {
       const { loadSnapshot } = await import("./lib/store.mjs")
-      return json(res, 200, { ok: true, port: PORT, av: appVersion(), lastTickAt, running, pageSeenAt: lastPageSeen || null, pageActive: panelActive(), snapshot: loadSnapshot() })
+      return json(res, 200, { ok: true, port: PORT, av: appVersion(), lastTickAt, running, runningSince: runningSince || null, lastError: lastError || null, pageSeenAt: lastPageSeen || null, pageActive: panelActive(), snapshot: loadSnapshot() })
     }
     if (url.pathname === "/api/config" && req.method === "POST") {
       lastPageSeen = Date.now() // 面板上保存设置：人显然在看
@@ -86,6 +125,11 @@ const server = createServer(async (req, res) => {
     }
     if (url.pathname === "/api/run" && req.method === "POST") {
       lastPageSeen = Date.now() // 面板上点「立即领取」：人显然在看，收工账号也全量探测
+      let body = ""
+      for await (const chunk of req) body += chunk
+      const patch = JSON.parse(body || "{}")
+      // 透传按钮请求 id：0.2.0 的 /api/run 丢了 id，按钮永远等不到「已执行」确认。
+      markRequest(patch.id)
       const r = await drive({ force: true, panelActive: true })
       return json(res, 200, { ok: true, ...r })
     }

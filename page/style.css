@@ -18,6 +18,9 @@ button:hover { filter: brightness(1.06); }
 .settings input[type=number] { width: 64px; font: inherit; padding: 3px 6px; }
 .settings select { font: inherit; padding: 3px 6px; }
 #msg { font-size: 12px; }
+#msg.error { color: #b91c1c; font-weight: 600; }
+#health { color: #b45309; }
+#health:empty { display: none; }
 table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
 th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--magpie-border, #8883); white-space: nowrap; }
 tr.claimed td:nth-child(5) { color: #15803d; font-weight: 600; }

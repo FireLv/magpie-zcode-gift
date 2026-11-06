@@ -314,9 +314,12 @@ export const tick = async ({ force = false, panelActive = true } = {}) => {
   }
 
   const rv = remoteVersionInfo()
+  // lastRequest 现取现用：tick 跑的几十秒里面板可能点了按钮（markRequest 已写进
+  // config.json），快照若带 tick 启动时的旧值，会把按钮的确认信号抹掉。
+  const freshLastRequest = loadConfig().lastRequest
   writeSnapshot({
     updated: Date.now(),
-    config: { enabled: cfg.enabled, intervalMin: cfg.intervalMin, unitStyle: cfg.unitStyle, versionSource: cfg.versionSource, lastRequest: cfg.lastRequest },
+    config: { enabled: cfg.enabled, intervalMin: cfg.intervalMin, unitStyle: cfg.unitStyle, versionSource: cfg.versionSource, lastRequest: freshLastRequest },
     version: { plugin: PLUGIN_VERSION, app: appVersion(), source: cfg.versionSource, remote: rv.version, via: rv.via, error: rv.error, checkedAt: rv.at || null },
     stats, accounts: accountViews, records: all.slice(-100).reverse(),
   })

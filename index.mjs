@@ -39,8 +39,58 @@ const sidecarUp = async (port) => {
   } catch { return false }
 }
 
+// 旧 sidecar 体检：任一命中就视为"僵死"，杀掉重启——
+//   1. /api/status 明确报告 running 且已远超单轮正常耗时（看门狗字段 runningSince）
+//   2. 跑的是旧代码（没有 runningSince 字段 = 修 fetch 超时之前的版本）
+// 命中 2 的进程往往还带着"每次 tick 都抛错"的旧状态（lastTickAt 长期为 0）。
+const sidecarStale = async (port) => {
+  try {
+    const r = await fetch(`${base(port)}/api/status`, { signal: AbortSignal.timeout(1500) })
+    if (!r.ok) return false
+    const s = await r.json()
+    if (!("runningSince" in s)) return true // 旧代码（无此字段），直接换代
+    if (s.running && typeof s.runningSince === "number" && Date.now() - s.runningSince > 3 * 60_000) return true
+    return false
+  } catch { return false }
+}
+
+const killStaleSidecar = async (port) => {
+  if (process.platform !== "win32") {
+    try {
+      const { execFile } = await import("node:child_process")
+      const out = await new Promise((resolve) => {
+        execFile("lsof", ["-t", `-i:${port}`], { timeout: 4000 }, (err, stdout) => resolve(err ? "" : String(stdout).trim()))
+      })
+      for (const pid of out.split(/\s+/).filter(Boolean)) process.kill(Number(pid), "SIGKILL")
+      return out.length > 0
+    } catch { return false }
+  }
+  try {
+    const { execFileSync } = await import("node:child_process")
+    // 找到监听该端口的 PID（netstat 输出的最后一段），杀掉
+    const out = execFileSync("netstat", ["-ano", "-p", "TCP"], { timeout: 5000, encoding: "utf8" })
+    const pids = new Set()
+    for (const line of out.split(/\r?\n/)) {
+      const cols = line.trim().split(/\s+/)
+      if (cols.length >= 5 && cols[1] === `127.0.0.1:${port}` && cols[3] === "LISTENING") pids.add(Number(cols[4]))
+    }
+    let killed = false
+    for (const pid of pids) {
+      try { execFileSync("taskkill", ["/PID", String(pid), "/T", "/F"], { timeout: 5000 }) } catch {}
+      killed = true
+    }
+    return killed
+  } catch { return false }
+}
+
 const ensureSidecar = async (port) => {
-  if (await sidecarUp(port)) return true
+  if (await sidecarUp(port)) {
+    if (await sidecarStale(port)) {
+      console.error("[zcode-gift] 旧 sidecar 僵死/过期，重启")
+      await killStaleSidecar(port)
+      await new Promise((r) => setTimeout(r, 800))
+    } else return true
+  }
   const child = spawn(process.execPath, [join(here, "server.mjs")], {
     detached: true,
     stdio: ["ignore", "ignore", "ignore"],
@@ -79,11 +129,21 @@ export const ZcodeGiftPlugin = async (input, options = {}) => {
   if (request) {
     try {
       const body = typeof request === "string" ? JSON.parse(request) : request
-      if (body?.action === "run") await rpc(port, "/api/run", {})
+      if (body?.action === "run") await rpc(port, "/api/run", { id: body.id })
       else if (body?.action === "config") await rpc(port, "/api/config", { ...(body.patch ?? {}), id: body.id })
       else if (body?.action === "page-seen") await rpc(port, "/api/page-seen", { id: body.id, wake: body.wake === true }).catch(() => {})
       feedDataFile(port)
-    } catch (e) { console.error("[zcode-gift] request:", e?.message ?? e) }
+    } catch (e) {
+      console.error("[zcode-gift] request:", e?.message ?? e)
+      // 出错也要让页面知道：把错误写进 data.js，按钮至少能看到"失败"而不是干等
+      try {
+        const snap = loadSnapshot()
+        if (snap) {
+          snap.lastError = String(e?.message ?? e).slice(0, 160)
+          writeFileSync(join(here, "page", "data.js"), `window.__ZG__ = ${JSON.stringify({ port, updated: Date.now(), snapshot: snap })};\n`)
+        }
+      } catch {}
+    }
   }
 
   return {
